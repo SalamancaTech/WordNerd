@@ -1,0 +1,5 @@
+{
+  "name": "Word Nerd",
+  "description": "An AI-powered vocabulary builder featuring adaptive learning, word games, and progress tracking using the Gemini API.",
+  "requestFramePermissions": []
+}

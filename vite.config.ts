@@ -3,6 +3,7 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
+    // We still load env to check if we need to do anything special, but mostly we rely on import.meta.env in the code.
     const env = loadEnv(mode, '.', '');
     return {
       base: mode === 'production' ? '/WordNerd/' : '/',
@@ -12,8 +13,9 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [react()],
       define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+        // Polyfill process.env to prevent crashes in 3rd party libs (like @google/genai)
+        // that might try to access it.
+        'process.env': {},
       },
       resolve: {
         alias: {

@@ -133,9 +133,11 @@ const App: React.FC = () => {
       }
 
       // 2. Check Environment Variable (Fallback)
-      if (process.env.API_KEY && process.env.API_KEY !== 'undefined') {
-        setApiKey(process.env.API_KEY);
-        setApiKeyState(process.env.API_KEY);
+      // Use import.meta.env for Vite
+      const envKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (envKey) {
+        setApiKey(envKey);
+        setApiKeyState(envKey);
         return;
       }
 

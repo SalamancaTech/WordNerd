@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Layout } from './components/Layout';
 import { WordCard } from './components/WordCard';
 import { Button } from './components/Button';
-import { generateWordOfDay, generateDefinitionQuiz, generateContextQuiz } from './services/geminiService';
+import { generateWordOfDay, generateDefinitionQuiz, generateContextQuiz, setApiKey, hasApiKey } from './services/geminiService';
 import { UserSettings, UserProgress, WordData, GameState, GameMode, QuizQuestion } from './types';
 import { DEFAULT_SETTINGS, FONTS, DIFFICULTIES } from './constants';
-import { Check, X, RefreshCw, Trophy, Book, Trash2, Heart, Award, ArrowRight, RotateCcw, Home } from 'lucide-react';
+import { Check, X, RefreshCw, Trophy, Book, Trash2, Heart, Award, ArrowRight, RotateCcw, Home, Key } from 'lucide-react';
 
 // Custom hook for local storage
 function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T) => void] {
@@ -31,6 +31,63 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T) => voi
   return [storedValue, setValue];
 }
 
+const ApiKeyModal: React.FC<{ onSave: (key: string, persist: boolean) => void }> = ({ onSave }) => {
+  const [inputKey, setInputKey] = useState('');
+  const [shouldSave, setShouldSave] = useState(true);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+      <div className="bg-white rounded-3xl shadow-2xl p-6 max-w-md w-full">
+        <div className="flex items-center gap-3 mb-4 text-indigo-600">
+           <div className="bg-indigo-100 p-3 rounded-full">
+             <Key size={24} />
+           </div>
+           <h2 className="text-2xl font-bold">API Key Required</h2>
+        </div>
+
+        <p className="text-slate-600 mb-6 leading-relaxed">
+          To generate personalized vocabulary quizzes and definitions, Word Nerd requires a Google Gemini API key.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2">Enter your Gemini API Key</label>
+            <input
+              type="password"
+              value={inputKey}
+              onChange={(e) => setInputKey(e.target.value)}
+              placeholder="AIzaSy..."
+              className="w-full p-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-mono text-sm"
+            />
+          </div>
+
+          <label className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 cursor-pointer transition-colors">
+            <input
+              type="checkbox"
+              checked={shouldSave}
+              onChange={(e) => setShouldSave(e.target.checked)}
+              className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500"
+            />
+            <span className="text-sm font-medium text-slate-700">Save key to this device</span>
+          </label>
+
+          <Button
+            className="w-full py-3 text-lg"
+            onClick={() => onSave(inputKey, shouldSave)}
+            disabled={!inputKey.trim()}
+          >
+            Start Learning
+          </Button>
+
+          <p className="text-xs text-center text-slate-400 mt-4">
+            Your key is stored locally in your browser and sent directly to Google. It is never stored on our servers.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('home');
   const [listTab, setListTab] = useState<'learned' | 'toLearn' | 'favorites'>('favorites');
@@ -41,6 +98,10 @@ const App: React.FC = () => {
     favorites: [],
     toLearn: [],
   });
+
+  // API Key State
+  const [apiKey, setApiKeyState] = useState<string | null>(null);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
   // Game State
   const [gameState, setGameState] = useState<GameState>({
@@ -59,6 +120,47 @@ const App: React.FC = () => {
   
   // Reference to hold the promise of the next question for prefetching
   const nextQuestionPromise = useRef<Promise<QuizQuestion> | null>(null);
+
+  // Initialize API Key
+  useEffect(() => {
+    const initKey = () => {
+      // 1. Check LocalStorage
+      const storedKey = localStorage.getItem('user_api_key');
+      if (storedKey) {
+        setApiKey(storedKey);
+        setApiKeyState(storedKey);
+        return;
+      }
+
+      // 2. Check Environment Variable (Fallback)
+      if (process.env.API_KEY && process.env.API_KEY !== 'undefined') {
+        setApiKey(process.env.API_KEY);
+        setApiKeyState(process.env.API_KEY);
+        return;
+      }
+
+      // 3. Prompt User
+      setShowApiKeyModal(true);
+    };
+    initKey();
+  }, []);
+
+  const handleSaveApiKey = (key: string, persist: boolean) => {
+    setApiKey(key);
+    setApiKeyState(key);
+    if (persist) {
+      localStorage.setItem('user_api_key', key);
+    }
+    setShowApiKeyModal(false);
+  };
+
+  const handleClearApiKey = () => {
+    localStorage.removeItem('user_api_key');
+    setApiKey(''); // Clears service
+    setApiKeyState(null);
+    setWordOfDay(null); // Clear WOD as it depends on API
+    setShowApiKeyModal(true);
+  };
 
   // Helper to add word to lists
   const addToProgress = (listName: keyof UserProgress, word: WordData) => {
@@ -96,6 +198,8 @@ const App: React.FC = () => {
   // Initialize Word of Day
   useEffect(() => {
     const fetchWOD = async () => {
+      if (!apiKey) return; // Wait for key
+
       // Simple cache for WOD
       const today = new Date().toDateString();
       const cached = localStorage.getItem('wod_cache');
@@ -119,11 +223,16 @@ const App: React.FC = () => {
     if (activeTab === 'home' && !wordOfDay) {
       fetchWOD();
     }
-  }, [settings.difficulty, activeTab, wordOfDay]);
+  }, [settings.difficulty, activeTab, wordOfDay, apiKey]);
 
 
   // Game Logic
   const startGame = async (mode: GameMode) => {
+    if (!apiKey) {
+      setShowApiKeyModal(true);
+      return;
+    }
+
     // Clear any pending prefetch when starting fresh
     nextQuestionPromise.current = null;
     setGameState(prev => ({ 
@@ -150,7 +259,7 @@ const App: React.FC = () => {
       setGameState(prev => ({ ...prev, quizData: data, isLoading: false }));
     } catch (e) {
       setGameState(prev => ({ ...prev, isLoading: false, currentMode: GameMode.None }));
-      alert("Could not start game. Check connection.");
+      alert("Could not start game. Check connection or API Key.");
     }
   };
 
@@ -523,6 +632,38 @@ const App: React.FC = () => {
     <div className="space-y-6 h-full overflow-y-auto pb-4">
       <h2 className="text-2xl font-bold mb-4">Preferences</h2>
       
+      {/* API Key Configuration Section */}
+      <section className="bg-indigo-50 p-5 rounded-2xl border border-indigo-100">
+        <div className="flex items-center gap-3 mb-4">
+           <div className="bg-white p-2 rounded-lg text-indigo-600 shadow-sm">
+             <Key size={20} />
+           </div>
+           <h3 className="font-bold text-lg text-indigo-900">API Configuration</h3>
+        </div>
+
+        <div className="bg-white/50 p-4 rounded-xl mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-semibold text-indigo-800">Current API Key</span>
+            {apiKey ? (
+               <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-bold">Active</span>
+            ) : (
+               <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full font-bold">Missing</span>
+            )}
+          </div>
+          <div className="font-mono text-sm bg-white p-2 rounded border border-indigo-100 text-slate-500 truncate">
+            {apiKey ? `${apiKey.substring(0, 4)}••••••••••••••••` : 'No key set'}
+          </div>
+        </div>
+
+        <Button
+          variant="secondary"
+          className="w-full bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+          onClick={handleClearApiKey}
+        >
+          {apiKey ? 'Change or Clear API Key' : 'Set API Key'}
+        </Button>
+      </section>
+
       <section className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
         <h3 className="font-bold text-lg mb-4">Difficulty Level</h3>
         <div className="space-y-2">
@@ -604,6 +745,7 @@ const App: React.FC = () => {
 
   return (
     <Layout settings={settings} activeTab={activeTab} onTabChange={setActiveTab}>
+      {showApiKeyModal && <ApiKeyModal onSave={handleSaveApiKey} />}
       {activeTab === 'home' && renderHome()}
       {activeTab === 'games' && renderGames()}
       {activeTab === 'lists' && renderLists()}

@@ -2,7 +2,19 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { MODEL_NAME } from "../constants";
 import { Difficulty, QuizQuestion, WordData } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+let genAI: GoogleGenAI | null = null;
+
+export const setApiKey = (key: string) => {
+  if (!key) {
+    genAI = null;
+    return;
+  }
+  genAI = new GoogleGenAI({ apiKey: key });
+};
+
+export const hasApiKey = (): boolean => {
+  return !!genAI;
+};
 
 // Schema for a single word data object
 const wordSchema = {
@@ -63,15 +75,23 @@ const getVarietyConstraint = () => {
   return strategies[Math.floor(Math.random() * strategies.length)]();
 };
 
+const ensureClient = () => {
+  if (!genAI) {
+    throw new Error("API_KEY_MISSING");
+  }
+  return genAI;
+};
+
 export const generateWordOfDay = async (difficulty: Difficulty): Promise<WordData> => {
   try {
+    const client = ensureClient();
     const constraint = getVarietyConstraint();
     const prompt = `Generate a sophisticated or interesting vocabulary word suitable for a ${difficulty} level student. 
     The word must ${constraint}.
     Provide the word, definition, an example sentence, its part of speech, and a simple pronunciation guide.
     IMPORTANT: Do not use common words like "ubiquitous", "serendipity", "ephemeral", "eloquent", or "resilient".`;
     
-    const response = await ai.models.generateContent({
+    const response = await client.models.generateContent({
       model: MODEL_NAME,
       contents: prompt,
       config: {
@@ -92,6 +112,7 @@ export const generateWordOfDay = async (difficulty: Difficulty): Promise<WordDat
 
 export const generateDefinitionQuiz = async (difficulty: Difficulty): Promise<QuizQuestion> => {
   try {
+    const client = ensureClient();
     const constraint = getVarietyConstraint();
     const prompt = `Create a multiple-choice vocabulary quiz question for a ${difficulty} level student. 
     The target word for the question must ${constraint}.
@@ -100,7 +121,7 @@ export const generateDefinitionQuiz = async (difficulty: Difficulty): Promise<Qu
     Also return the full data for the target word (word, definition, example, etc.).
     IMPORTANT: Do not use common words like "ubiquitous", "serendipity", "ephemeral".`;
 
-    const response = await ai.models.generateContent({
+    const response = await client.models.generateContent({
       model: MODEL_NAME,
       contents: prompt,
       config: {
@@ -121,6 +142,7 @@ export const generateDefinitionQuiz = async (difficulty: Difficulty): Promise<Qu
 
 export const generateContextQuiz = async (difficulty: Difficulty): Promise<QuizQuestion> => {
   try {
+    const client = ensureClient();
     const constraint = getVarietyConstraint();
     const prompt = `Create a "fill-in-the-blank" vocabulary quiz question for a ${difficulty} level student.
     The target word must ${constraint}.
@@ -129,7 +151,7 @@ export const generateContextQuiz = async (difficulty: Difficulty): Promise<QuizQ
     Also return the full data for the target word.
     IMPORTANT: Do not use common words like "ubiquitous", "serendipity", "ephemeral".`;
 
-    const response = await ai.models.generateContent({
+    const response = await client.models.generateContent({
       model: MODEL_NAME,
       contents: prompt,
       config: {
